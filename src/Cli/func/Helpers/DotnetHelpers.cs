@@ -304,14 +304,80 @@ namespace Azure.Functions.Cli.Helpers
             }
         }
 
+        public static async Task<string> GetBuildOutputPathAsync(string projectFilePath, string configuration = "Debug")
+        {
+            string args =
+                $"msbuild \"{projectFilePath}\" " +
+                $"-nologo -v:q -restore:false " +
+                $"-p:Configuration={configuration} " +
+                $"-getProperty:TargetDir";
+
+            var exe = new Executable("dotnet", args,
+                workingDirectory: Path.GetDirectoryName(projectFilePath),
+                environmentVariables: new Dictionary<string, string>
+                {
+                    ["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1"
+                });
+
+            var stdOut = new StringBuilder();
+            int exit = await exe.RunAsync(s => stdOut.Append(s), _ => { });
+
+            if (exit != 0) return null;
+
+            var targetDir = stdOut.ToString().Trim();
+
+            return string.IsNullOrWhiteSpace(targetDir)
+                ? null
+                : targetDir;
+        }
+
+        public static async Task BuildAndChangeDirectory(string cliParams)
+        {
+            if (!CanDotnetBuild()) { return; }
+
+            string projectFile = GetCsprojOrFsproj();
+
+            await BuildDotnetProject(outputPath: null, cliParams);
+
+            string configuration = ExtractConfiguration(cliParams);
+
+            string targetDir = await GetBuildOutputPathAsync(projectFile, configuration);
+
+            if (string.IsNullOrEmpty(targetDir))
+            {
+                throw new CliException(
+                    "Could not determine build output directory. " +
+                    "Check the project's OutputPath or ArtifactsPath configuration.");
+            }
+
+            Environment.CurrentDirectory = targetDir;
+        }
+
+        private static string ExtractConfiguration(string cliParams)
+        {
+            if (string.IsNullOrWhiteSpace(cliParams))
+            {
+                return "Debug";
+            }
+
+            var match = Regex.Match(
+                cliParams,
+                @"(?:-c|--configuration)\s+(\w+)",
+                RegexOptions.IgnoreCase);
+
+            return match.Success
+                ? match.Groups[1].Value
+                : "Debug";
+        }
+
         public static async Task<bool> BuildDotnetProject(string outputPath, string dotnetCliParams, bool showOutput = true)
         {
-            if (FileSystemHelpers.DirectoryExists(outputPath))
+            if (outputPath != null && FileSystemHelpers.DirectoryExists(outputPath))
             {
                 FileSystemHelpers.DeleteDirectorySafe(outputPath);
             }
 
-            var exe = new Executable("dotnet", $"build --output {outputPath} {dotnetCliParams}");
+            var exe = outputPath != null ? new Executable("dotnet", $"build --output {outputPath} {dotnetCliParams}") : new Executable("dotnet", $"build {dotnetCliParams}");
             var exitCode = showOutput
                 ? await exe.RunAsync(o => ColoredConsole.WriteLine(o), e => ColoredConsole.Error.WriteLine(e))
                 : await exe.RunAsync();

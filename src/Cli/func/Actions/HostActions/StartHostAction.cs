@@ -752,7 +752,7 @@ namespace Azure.Functions.Cli.Actions.HostActions
                         "Use 'dotnet run' instead, which builds the project and starts the Functions host from the correct output directory."));
                 }
 
-                await DotnetHelpers.BuildAndChangeDirectory(Path.Combine("bin", "output"), string.Empty);
+                await DotnetHelpers.BuildAndChangeDirectory(string.Empty);
             }
             else if (GlobalCoreToolsSettings.CurrentWorkerRuntime == WorkerRuntime.Powershell && !CommandChecker.CommandExists("dotnet"))
             {
